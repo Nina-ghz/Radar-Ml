@@ -56,3 +56,62 @@ class STFTSpectrogram(nn.Module):
 
     def output_shape(self, n_samples: int = N_CROPPED) -> tuple[int, int]:
         return self.n_fft // self.freq_pool, 1 + (n_samples - self.n_fft) // self.hop_length
+
+
+class MultiResSTFT(nn.Module):
+    """Multi-resolution STFT front-end (Track B feature engineering).
+
+    Computes bilateral STFTs with Hann windows of multiple sizes (default: 64, 256, 1024),
+    resizes each resulting log-power spectrogram to out_shape (default: (128, 95)) using
+    mode 'area' when reducing and 'bilinear' when enlarging, standardises each channel
+    per example (mean 0, std 1), and stacks them into (B, 3, 128, 95).
+    """
+
+    def __init__(
+        self,
+        n_ffts: tuple[int, ...] | list[int] = (64, 256, 1024),
+        hop_length: int = 128,
+        out_shape: tuple[int, int] | list[int] = (128, 95),
+        eps: float = 1e-10,
+    ):
+        super().__init__()
+        self.n_ffts = tuple(n_ffts)
+        self.hop_length = hop_length
+        self.out_shape = tuple(out_shape)
+        self.eps = eps
+        for i, n_fft in enumerate(self.n_ffts):
+            self.register_buffer(f"window_{i}", torch.hann_window(n_fft), persistent=False)
+
+    def forward(self, iq: torch.Tensor) -> torch.Tensor:
+        x = torch.complex(iq[:, 0].float(), iq[:, 1].float())
+        channels = []
+        for i, n_fft in enumerate(self.n_ffts):
+            window = getattr(self, f"window_{i}")
+            spec = torch.stft(
+                x,
+                n_fft=n_fft,
+                hop_length=self.hop_length,
+                window=window,
+                center=False,
+                onesided=False,
+                return_complex=True,
+            )
+            spec = torch.fft.fftshift(spec, dim=1)
+            img = (10.0 * torch.log10(spec.real ** 2 + spec.imag ** 2 + self.eps)).unsqueeze(1)
+
+            # Mode "area" quand on réduit, "bilinear" quand on agrandit
+            if img.shape[-2] == self.out_shape[0] and img.shape[-1] == self.out_shape[1]:
+                resized = img
+            elif (img.shape[-2] * img.shape[-1]) >= (self.out_shape[0] * self.out_shape[1]):
+                resized = F.interpolate(img, size=self.out_shape, mode="area")
+            else:
+                resized = F.interpolate(img, size=self.out_shape, mode="bilinear", align_corners=False)
+
+            mean = resized.mean(dim=(2, 3), keepdim=True)
+            std = resized.std(dim=(2, 3), keepdim=True).clamp_min(1e-6)
+            channels.append((resized - mean) / std)
+
+        return torch.cat(channels, dim=1)
+
+    def output_shape(self, n_samples: int = N_CROPPED) -> tuple[int, int]:
+        return self.out_shape

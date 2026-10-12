@@ -8,8 +8,8 @@ import pytest
 torch = pytest.importorskip("torch")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from radarml.features import CROP, N_CROPPED, STFTSpectrogram, preprocess  # noqa: E402
-from radarml.models import build_model  # noqa: E402
+from radarml.features import CROP, N_CROPPED, MultiResSTFT, STFTSpectrogram, preprocess  # noqa: E402
+from radarml.models import build_model, count_parameters  # noqa: E402
 
 
 def test_crop_covers_every_pulse():
@@ -65,3 +65,37 @@ def test_train_snr_weights(tmp_path):
     x, y = ds[0]
     assert x.shape == (2, N_CROPPED)
     assert y == 0
+
+
+def test_multires_stft_shapes_and_standardization():
+    front = MultiResSTFT(n_ffts=(64, 256, 1024), hop_length=128, out_shape=(128, 95))
+    x = torch.randn(3, 2, N_CROPPED)
+    out = front(x)
+    assert out.shape == (3, 3, 128, 95)
+    assert front.output_shape() == (128, 95)
+
+    # Standardisation par canal séparément pour chaque exemple
+    for b in range(3):
+        for c in range(3):
+            assert out[b, c].mean().item() == pytest.approx(0.0, abs=1e-5)
+            assert out[b, c].std().item() == pytest.approx(1.0, rel=1e-3)
+
+
+def test_build_model_multires():
+    stft = dict(type="multires", n_ffts=(64, 256, 1024), hop_length=128, out_shape=(128, 95))
+    cnn = dict(channels=(8, 16))
+    x = torch.randn(2, 2, N_CROPPED)
+    model = build_model(stft, cnn)
+    assert model(x).shape == (2, 7)
+
+
+def test_build_model_e001_backward_compatibility():
+    stft_e001 = dict(n_fft=256, hop_length=128, freq_pool=2)
+    cnn_e001 = dict(channels=(16, 32, 64, 128), dropout=0.3)
+    m1 = build_model(stft_e001, cnn_e001)
+    assert isinstance(m1.frontend, STFTSpectrogram)
+    assert count_parameters(m1) == 292_279
+
+    m2 = build_model(dict(type="single", **stft_e001), cnn_e001)
+    assert isinstance(m2.frontend, STFTSpectrogram)
+    assert count_parameters(m2) == 292_279
