@@ -1,0 +1,10 @@
+# Core (data loading, official preprocessing, metric)
+numpy>=1.24
+scipy>=1.11
+pandas>=2.0
+matplotlib>=3.7
+pyyaml>=6.0
+tqdm>=4.66
+# Tests
+pytest>=8.0
+# Modelling stack: add here once chosen by the team (e.g. torch, scikit-learn)

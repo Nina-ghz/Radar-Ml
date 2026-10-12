@@ -1,0 +1,9 @@
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.ipynb text eol=lf
+*.png binary
+*.pdf binary
+# Keep official files byte-identical (published SHA256 checksums depend on CRLF line endings)
+data/manifest/** -text
+third_party/radarml_lite/** -text
+LICENSE -text

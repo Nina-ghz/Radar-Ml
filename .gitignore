@@ -1,0 +1,42 @@
+# --- Data (never commit: large and/or confidential) ---
+data/raw/
+data/interim/
+data/processed/
+data/blind_test/
+*.zip
+*.npy
+*.npz
+*.h5
+*.hdf5
+!data/manifest/*
+# Local copies of downloads at the repo root
+/split_manifest.csv
+/split_manifest.json
+*.pdf
+
+# --- Models / runs (hashed at freeze, shared outside git) ---
+models/*
+!models/.gitkeep
+runs/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+predictions*.csv
+freeze_manifest.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db
