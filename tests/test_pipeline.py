@@ -132,6 +132,11 @@ def test_configs():
     assert {key for key in e001 if e001[key] != e002[key]} == {"experiment", "stft"}
     assert count_parameters(build_model(e002["stft"], e002["cnn"])) == 292_279 + 2 * 16 * 9
 
+    # one variable per experiment: E003 only changes train_snr_weights
+    e003 = yaml.safe_load((ROOT / "configs" / "e003_lowsnr.yaml").read_text(encoding="utf-8"))
+    assert e003["train_snr_weights"] == [1] * 6 + [2] * 3 + [4] * 4
+    assert {k for k in e003 if k != "train_snr_weights" and e003[k] != e002[k]} == {"experiment"}
+
 
 def test_evaluation_helpers():
     assert duration_of(PulseRef("100us_barker5x13_0Mhz_30Mhz_recorded.npy", "", 0, "validation", "barker")) == 100
