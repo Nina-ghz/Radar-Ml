@@ -34,3 +34,34 @@ def test_frontend_and_model_shapes():
     assert tuple(img.shape[2:]) == front.output_shape() == (128, 95)
     model = build_model(dict(n_fft=256, hop_length=128, freq_pool=2), dict(channels=(8, 16)))
     assert model(x).shape == (3, 7)
+
+
+def test_train_snr_weights(tmp_path):
+    from radarml.constants import REQUESTED_SNRS_DB
+    from radarml.data import TrainDataset
+    from radarml.manifest import PulseRef
+
+    arr = np.zeros((1, 5, 33_600), dtype=np.int16)
+    arr[0, :, 6000:26000] = 1000
+    np.save(tmp_path / "dummy_recorded.npy", arr)
+    ref = PulseRef("dummy_recorded.npy", "dummy_recorded.npy", 0, "train", "barker")
+
+    # Mismatched length should raise ValueError
+    with pytest.raises(ValueError):
+        TrainDataset([ref], tmp_path, train_snr_weights=[1.0, 2.0])
+
+    # Negative / zero sum should raise ValueError
+    with pytest.raises(ValueError):
+        TrainDataset([ref], tmp_path, train_snr_weights=[-1.0] * len(REQUESTED_SNRS_DB))
+
+    # Weight concentrated on a single SNR
+    target_idx = 6  # 0 dB
+    weights = [0.0] * len(REQUESTED_SNRS_DB)
+    weights[target_idx] = 5.0
+    ds = TrainDataset([ref], tmp_path, train_snr_weights=weights)
+    assert ds.snr_weights[target_idx] == 1.0
+
+    # Ensure getitem succeeds and produces correct tensor
+    x, y = ds[0]
+    assert x.shape == (2, N_CROPPED)
+    assert y == 0
