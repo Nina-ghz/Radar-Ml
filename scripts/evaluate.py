@@ -1,149 +1,82 @@
 #!/usr/bin/env python3
-"""Evaluation script for RadarML Track B runs.
+"""Re-run the full validation evaluation of a trained run.
 
 Usage:
-    python scripts/evaluate.py --run runs/<experiment_dir> [--val-pulses-per-file N] [--device auto|cpu|cuda]
+    python scripts/evaluate.py --run runs/<experiment>_<timestamp>
+        [--val-pulses-per-file N] [--device auto|cpu|cuda]
+
+Reloads model.pt with the run's config.yaml and scores the validation split at the
+13 requested SNRs (default: all 20 validation pulses per configuration). Writes
+evaluation_report.json and evaluation_figures/ in the run directory.
 """
 from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
-import time
+from pathlib import Path
 
-import numpy as np
-import pandas as pd
-import torch
-from torch.utils.data import DataLoader
-import yaml
+import matplotlib
 
-# Ensure src is on sys.path
+matplotlib.use("Agg")
+
+import pandas as pd  # noqa: E402
+import yaml  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "src"))
 
-from radarml.constants import REQUESTED_SNRS_DB
-from radarml.data import EvalDataset
-from radarml.manifest import load_manifest, select
-from radarml.metrics import challenge_report
-from radarml.models import build_model
-from radarml.training import predict
+from radarml.evaluation import (describe_hardware, evaluate, inference_ms_per_pulse,  # noqa: E402
+                                load_checkpoint, resolve_device)
+from radarml.manifest import load_manifest, select  # noqa: E402
+from radarml.models import count_parameters  # noqa: E402
+from radarml.plots import save_validation_figures  # noqa: E402
+
+DATA_DIR = ROOT / "data" / "raw" / "recorded_dataset"
+MANIFEST_CSV = ROOT / "data" / "manifest" / "split_manifest.csv"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate a trained RadarML model on the validation split")
-    parser.add_argument("--run", type=str, required=True, help="Path to run directory containing config.yaml and model.pt")
-    parser.add_argument("--val-pulses-per-file", type=int, default=20, help="Number of validation pulses per config (default: 20)")
-    parser.add_argument("--device", type=str, choices=["auto", "cpu", "cuda"], default="auto", help="Compute device")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--run", type=Path, required=True, help="run directory with config.yaml and model.pt")
+    parser.add_argument("--val-pulses-per-file", type=int, default=20,
+                        help="validation pulses per configuration (default: all 20)")
+    parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     return parser.parse_args()
-
-
-def resolve_device(device_choice: str) -> tuple[torch.device, bool, str]:
-    if device_choice == "auto":
-        dev_str = "cuda" if torch.cuda.is_available() else "cpu"
-    elif device_choice == "cuda":
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA was requested but is not available.")
-        dev_str = "cuda"
-    else:
-        dev_str = "cpu"
-    device = torch.device(dev_str)
-    pin_memory = (dev_str == "cuda")
-    return device, pin_memory, dev_str
-
-
-def duration_of(ref) -> int:
-    token = Path(ref.file).name.split("_")[0].lower()
-    if token.endswith("us"):
-        return int(token[:-2])
-    return int(token)
 
 
 def main() -> None:
     args = parse_args()
-    run_dir = Path(args.run)
-    if not run_dir.exists():
-        raise FileNotFoundError(f"Run directory not found: {run_dir}")
+    config = yaml.safe_load((args.run / "config.yaml").read_text(encoding="utf-8"))
+    device = resolve_device(args.device)
+    model, checkpoint = load_checkpoint(args.run / "model.pt", config, device)
 
-    config_file = run_dir / "config.yaml"
-    model_file = run_dir / "model.pt"
+    val_refs = select(load_manifest(DATA_DIR, MANIFEST_CSV), "validation", args.val_pulses_per_file)
+    print(f"Device : {device} | validation : {len(val_refs):,} pulses × 13 SNR", flush=True)
+    result = evaluate(model, val_refs, DATA_DIR, device, num_workers=config["num_workers"])
+    report = result["report"]
+    by_duration = {d: rep["mean_balanced_accuracy"] for d, rep in result["by_duration"].items()}
+    model_ms, stft_ms = inference_ms_per_pulse(model, val_refs, DATA_DIR, device)
 
-    if not config_file.exists():
-        raise FileNotFoundError(f"config.yaml not found in {run_dir}")
-    if not model_file.exists():
-        raise FileNotFoundError(f"model.pt not found in {run_dir}")
+    summary = dict(experiment=config["experiment"], run=args.run.name, epoch=checkpoint["epoch"],
+                   val_pulses_per_file=args.val_pulses_per_file, samples=report["samples"],
+                   mean_balanced_accuracy=report["mean_balanced_accuracy"],
+                   tiebreak_low_snr=report["tiebreak_low_snr"], by_duration=by_duration,
+                   costs={"paramètres": count_parameters(model),
+                          "inférence (ms/pulse, STFT incluse)": round(model_ms, 2),
+                          "dont STFT (ms/pulse)": round(stft_ms, 2),
+                          "matériel": describe_hardware(device)},
+                   per_snr=report["per_snr"])
+    (args.run / "evaluation_report.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False),
+                                                     encoding="utf-8")
+    save_validation_figures(report, result["by_duration"], args.run / "evaluation_figures")
 
-    with config_file.open("r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-
-    device, pin_memory, device_str = resolve_device(args.device)
-    print(f"Device: {device_str}")
-
-    stft_cfg = config.get("stft", dict(n_fft=256, hop_length=128, freq_pool=2))
-    cnn_cfg = config.get("cnn", dict(channels=(16, 32, 64, 128), dropout=0.3))
-    if isinstance(cnn_cfg.get("channels"), list):
-        cnn_cfg = dict(cnn_cfg)
-        cnn_cfg["channels"] = tuple(cnn_cfg["channels"])
-
-    model = build_model(stft_cfg, cnn_cfg).to(device)
-    checkpoint = torch.load(model_file, map_location=device)
-    model.load_state_dict(checkpoint["state_dict"])
-    model.eval()
-
-    data_dir = ROOT / "data" / "raw" / "recorded_dataset"
-    manifest_csv = ROOT / "data" / "manifest" / "split_manifest.csv"
-    refs = load_manifest(data_dir, manifest_csv)
-
-    val_refs = select(refs, "validation", args.val_pulses_per_file)
-    snrs = config.get("train_snrs", list(REQUESTED_SNRS_DB))
-    val_ds = EvalDataset(val_refs, data_dir, snrs=snrs)
-
-    num_workers = int(config.get("num_workers", 3))
-    loader_kw = dict(num_workers=num_workers, persistent_workers=False, pin_memory=pin_memory)
-    val_loader = DataLoader(val_ds, batch_size=256, **loader_kw)
-
-    print(f"Évaluation sur {len(val_refs):,} pulses × {len(snrs)} SNRs = {len(val_ds):,} exemples")
-    t0 = time.perf_counter()
-    out = predict(model, val_loader, device=device)
-    eval_time = (time.perf_counter() - t0) / 60
-
-    report = challenge_report(out["y_true"], out["y_pred"], out["snr"])
-
-    print(f"\n=======================================================")
-    print(f"RÉSULTATS DE L'ÉVALUATION ({run_dir.name})")
-    print(f"=======================================================")
-    print(f"Score (moyenne balanced accuracy, 13 SNRs) : {report['mean_balanced_accuracy']:.4f}")
-    print(f"Tie-break (-20/-25/-30 dB)                 : {report['tiebreak_low_snr']:.4f}")
-    print(f"Temps d'évaluation                         : {eval_time:.2f} min")
-
-    durations = np.array([duration_of(val_refs[i]) for i in out["ref_index"]])
-    by_duration = {}
-    print("\nBalanced accuracy par durée de pulse :")
-    for d in (10, 50, 100):
-        mask = (durations == d)
-        if mask.any():
-            rep_d = challenge_report(out["y_true"][mask], out["y_pred"][mask], out["snr"][mask])
-            by_duration[str(d)] = rep_d["mean_balanced_accuracy"]
-            print(f"  {d:>3} µs : {rep_d['mean_balanced_accuracy']:.4f}")
-
-    per_snr_df = pd.DataFrame(report["per_snr"]).set_index("requested_snr_db")[["balanced_accuracy", "accuracy"]]
-    print("\nPar SNR :")
-    print(per_snr_df.round(4).to_string())
-
-    # Sauvegarder evaluation_report.json
-    eval_report = {
-        "run": str(run_dir),
-        "val_pulses_per_file": args.val_pulses_per_file,
-        "mean_balanced_accuracy": report["mean_balanced_accuracy"],
-        "tiebreak_low_snr": report["tiebreak_low_snr"],
-        "by_duration": by_duration,
-        "per_snr": report["per_snr"],
-        "eval_minutes": round(eval_time, 2),
-    }
-    with (run_dir / "evaluation_report.json").open("w", encoding="utf-8") as f:
-        json.dump(eval_report, f, indent=1, default=str)
-    print(f"\nRapport enregistré dans : {run_dir / 'evaluation_report.json'}")
+    per_snr = pd.DataFrame(report["per_snr"]).set_index("requested_snr_db")[["balanced_accuracy", "accuracy"]]
+    print(per_snr.round(4).to_string())
+    print("Par durée : " + " | ".join(f"{d} µs {score:.4f}" for d, score in by_duration.items()))
+    print(f"SCORE VALIDATION (moyenne des 13 SNR) : {report['mean_balanced_accuracy']:.4f} | "
+          f"tie-break (-20/-25/-30 dB) : {report['tiebreak_low_snr']:.4f} | {model_ms:.1f} ms/pulse")
+    print(f"Rapport : {args.run / 'evaluation_report.json'}")
 
 
 if __name__ == "__main__":

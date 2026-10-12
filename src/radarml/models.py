@@ -21,13 +21,8 @@ class SpecCNN(nn.Module):
     (and how wide) the pattern is on the spectrogram - pulses span 5 to 50 columns.
     The first block has a single convolution: full-resolution layers dominate CPU cost."""
 
-    def __init__(
-        self,
-        in_channels: int = 1,
-        channels: tuple[int, ...] | list[int] = (16, 32, 64, 128),
-        dropout: float = 0.3,
-        n_classes: int = len(CLASSES),
-    ):
+    def __init__(self, channels=(16, 32, 64, 128), dropout: float = 0.3, n_classes: int = len(CLASSES),
+                 in_channels: int = 1):
         super().__init__()
         layers, c_in = [], in_channels
         for i, c_out in enumerate(channels):
@@ -43,7 +38,7 @@ class SpecCNN(nn.Module):
 class TrackBModel(nn.Module):
     """[I; Q] -> fixed STFT front-end -> CNN -> logits for the 7 classes."""
 
-    def __init__(self, frontend: nn.Module, backbone: nn.Module):
+    def __init__(self, frontend: STFTSpectrogram | MultiResSTFT, backbone: nn.Module):
         super().__init__()
         self.frontend, self.backbone = frontend, backbone
 
@@ -51,25 +46,17 @@ class TrackBModel(nn.Module):
         return self.backbone(self.frontend(iq))
 
 
-def build_model(stft: dict, cnn: dict) -> TrackBModel:
-    stft_cfg = dict(stft)
-    stft_type = stft_cfg.pop("type", "single")
-    if stft_type == "single":
-        frontend = STFTSpectrogram(**stft_cfg)
-        in_channels = 1
-    elif stft_type == "multires":
-        frontend = MultiResSTFT(**stft_cfg)
-        in_channels = len(frontend.n_ffts)
-    else:
-        raise ValueError(f"Unknown STFT type: {stft_type!r} (expected 'single' or 'multires')")
+FRONTENDS = {"single": STFTSpectrogram, "multires": MultiResSTFT}
 
-    cnn_cfg = dict(cnn)
-    if isinstance(cnn_cfg.get("channels"), list):
-        cnn_cfg["channels"] = tuple(cnn_cfg["channels"])
-    if "in_channels" not in cnn_cfg:
-        cnn_cfg["in_channels"] = in_channels
-    backbone = SpecCNN(**cnn_cfg)
-    return TrackBModel(frontend, backbone)
+
+def build_model(stft: dict, cnn: dict) -> TrackBModel:
+    """`stft["type"]` selects the front-end: "single" (default, E001) or "multires"."""
+    stft = dict(stft)
+    kind = stft.pop("type", "single")
+    if kind not in FRONTENDS:
+        raise ValueError(f"Unknown stft.type {kind!r} (expected one of {sorted(FRONTENDS)})")
+    frontend = FRONTENDS[kind](**stft)
+    return TrackBModel(frontend, SpecCNN(**{"in_channels": frontend.out_channels, **cnn}))
 
 
 def count_parameters(model: nn.Module) -> int:
