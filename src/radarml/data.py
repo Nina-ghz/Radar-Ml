@@ -37,10 +37,23 @@ class _Recordings:
 class TrainDataset(Dataset):
     """Training pulses only. Each access: requested SNR drawn from `snrs`, fresh noise."""
 
-    def __init__(self, refs: list[PulseRef], data_dir: Path, snrs=REQUESTED_SNRS_DB, seed: int = 0):
+    def __init__(self, refs: list[PulseRef], data_dir: Path, snrs=REQUESTED_SNRS_DB,
+                 snr_weights=None, train_snr_weights=None, seed: int = 0):
         if any(ref.split != "train" for ref in refs):
             raise ValueError("TrainDataset accepts training pulses only")
         self.refs, self.snrs, self.seed, self.epoch = refs, tuple(snrs), seed, 0
+        weights = snr_weights if snr_weights is not None else train_snr_weights
+        if weights is not None:
+            if len(weights) != len(self.snrs):
+                raise ValueError(
+                    f"train_snr_weights length ({len(weights)}) does not match train_snrs length ({len(self.snrs)})"
+                )
+            weights_arr = np.asarray(weights, dtype=np.float64)
+            if np.any(weights_arr < 0) or weights_arr.sum() <= 0:
+                raise ValueError("train_snr_weights must be non-negative with positive sum")
+            self.snr_weights = weights_arr / weights_arr.sum()
+        else:
+            self.snr_weights = None
         self.recordings = _Recordings(data_dir)
 
     def set_epoch(self, epoch: int) -> None:
@@ -53,7 +66,11 @@ class TrainDataset(Dataset):
     def __getitem__(self, index: int):
         ref = self.refs[index]
         rng = np.random.default_rng((self.seed, self.epoch, index))
-        snr = float(self.snrs[rng.integers(len(self.snrs))])
+        if self.snr_weights is not None:
+            idx = int(rng.choice(len(self.snrs), p=self.snr_weights))
+            snr = float(self.snrs[idx])
+        else:
+            snr = float(self.snrs[rng.integers(len(self.snrs))])
         row = degrade(self.recordings.row(ref), snr, rng)
         return torch.from_numpy(preprocess(row)), ref.target
 
