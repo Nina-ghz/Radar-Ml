@@ -61,8 +61,11 @@ apprendre à partir des exemples.
 
 ## 4. SNR : pièges à connaître
 
-- Le SNR est estimé sur des **fenêtres fixes** : bruit 0–20 µs, signal 21–119 µs.
-  Pour un pulse de 10 µs, le SNR *dans* le pulse est donc bien plus faible que le nominal.
+- Le SNR est estimé sur des **fenêtres fixes** : bruit 0–20 µs, signal 21–119 µs (98 µs).
+  La puissance d'un pulse court est diluée dans cette fenêtre, donc le SNR *dans* le pulse est
+  **plus élevé** que le nominal : **+9,9 dB** (10 µs), **+2,9 dB** (50 µs), 0 dB (100 µs).
+  L'énergie totale du pulse rapportée au bruit est la même pour les trois durées
+  (mesuré dans `notebooks/01_eda.ipynb`, section 3).
 - Si le SNR demandé dépasse le SNR source, **aucun bruit n'est ajouté** (≈ 1/3 des cas à +30 dB).
 - Écrêtage int16 : 5,38 % des valeurs I/Q à −30 dB, 0,24 % à −25 dB.
 - Toujours parler de **« requested SNR (dB) »** dans les figures et le rapport.

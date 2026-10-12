@@ -43,7 +43,9 @@ On macOS/Linux replace `.\.venv\Scripts\python.exe` by `.venv/bin/python`.
 │   ├── CHALLENGE_BRIEF.md   # data, rules, metric, timeline, pitfalls
 │   ├── EXPERIMENT_LOG.md    # one line per experiment (mandatory for the report)
 │   └── SUBMISSION_CHECKLIST.md
-├── notebooks/               # exploration (prefix with initials: 01_ab_eda.ipynb)
+├── notebooks/
+│   ├── 01_eda.ipynb         # exploration + quantitative validation of the data
+│   └── 02_baseline.ipynb    # first end-to-end Track B pipeline (reference score)
 ├── reports/figures/         # figures for the final presentation
 ├── models/                  # checkpoints (git-ignored, hashed at freeze)
 ├── scripts/
@@ -54,6 +56,10 @@ On macOS/Linux replace `.\.venv\Scripts\python.exe` by `.venv/bin/python`.
 │   ├── constants.py         # classes, sample rate, the 13 SNRs
 │   ├── manifest.py          # split loading, labels from filenames
 │   ├── noise.py             # on-the-fly SNR degradation == official expansion
+│   ├── features.py          # crop 19-122 us, per-pulse RMS normalisation, STFT front-end
+│   ├── data.py              # PyTorch datasets (train: random SNR; eval: official noise)
+│   ├── models.py            # spectrogram CNN trained from scratch
+│   ├── training.py          # class weights, train / predict loops
 │   └── metrics.py           # challenge metric == official scorer
 ├── tests/
 └── third_party/radarml_lite/  # organizers' scripts, unmodified (GPL-3.0)

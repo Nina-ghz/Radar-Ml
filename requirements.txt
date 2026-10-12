@@ -7,4 +7,8 @@ pyyaml>=6.0
 tqdm>=4.66
 # Tests
 pytest>=8.0
-# Modelling stack: add here once chosen by the team (e.g. torch, scikit-learn)
+# Modelling (CPU build: pip install torch --index-url https://download.pytorch.org/whl/cpu)
+torch>=2.2
+# Notebooks
+ipykernel>=6.29
+nbconvert>=7.16
