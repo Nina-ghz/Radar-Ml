@@ -5,7 +5,7 @@ import torch
 from torch import nn
 
 from .constants import CLASSES
-from .features import STFTSpectrogram
+from .features import MultiResSTFT, STFTSpectrogram
 
 
 def _block(c_in: int, c_out: int, convs: int = 2) -> nn.Sequential:
@@ -21,9 +21,10 @@ class SpecCNN(nn.Module):
     (and how wide) the pattern is on the spectrogram - pulses span 5 to 50 columns.
     The first block has a single convolution: full-resolution layers dominate CPU cost."""
 
-    def __init__(self, channels=(16, 32, 64, 128), dropout: float = 0.3, n_classes: int = len(CLASSES)):
+    def __init__(self, channels=(16, 32, 64, 128), dropout: float = 0.3, n_classes: int = len(CLASSES),
+                 in_channels: int = 1):
         super().__init__()
-        layers, c_in = [], 1
+        layers, c_in = [], in_channels
         for i, c_out in enumerate(channels):
             layers.append(_block(c_in, c_out, convs=1 if i == 0 else 2))
             c_in = c_out
@@ -37,7 +38,7 @@ class SpecCNN(nn.Module):
 class TrackBModel(nn.Module):
     """[I; Q] -> fixed STFT front-end -> CNN -> logits for the 7 classes."""
 
-    def __init__(self, frontend: STFTSpectrogram, backbone: nn.Module):
+    def __init__(self, frontend: STFTSpectrogram | MultiResSTFT, backbone: nn.Module):
         super().__init__()
         self.frontend, self.backbone = frontend, backbone
 
@@ -45,8 +46,17 @@ class TrackBModel(nn.Module):
         return self.backbone(self.frontend(iq))
 
 
+FRONTENDS = {"single": STFTSpectrogram, "multires": MultiResSTFT}
+
+
 def build_model(stft: dict, cnn: dict) -> TrackBModel:
-    return TrackBModel(STFTSpectrogram(**stft), SpecCNN(**cnn))
+    """`stft["type"]` selects the front-end: "single" (default, E001) or "multires"."""
+    stft = dict(stft)
+    kind = stft.pop("type", "single")
+    if kind not in FRONTENDS:
+        raise ValueError(f"Unknown stft.type {kind!r} (expected one of {sorted(FRONTENDS)})")
+    frontend = FRONTENDS[kind](**stft)
+    return TrackBModel(frontend, SpecCNN(**{"in_channels": frontend.out_channels, **cnn}))
 
 
 def count_parameters(model: nn.Module) -> int:

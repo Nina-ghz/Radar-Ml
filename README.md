@@ -32,10 +32,29 @@ python -m venv .venv
 
 On macOS/Linux replace `.\.venv\Scripts\python.exe` by `.venv/bin/python`.
 
+## Running an experiment
+
+One experiment = one YAML file in `configs/` (copy the best one, change one thing).
+
+```powershell
+# Train (CPU or GPU). Writes runs/<experiment>_<timestamp>/ (git-ignored):
+# config.yaml, model.pt, history.csv, validation_report.json, figures/
+.\.venv\Scripts\python.exe scripts\train.py --config configs\e002_multires.yaml [--device auto|cpu|cuda]
+
+# Full validation (20 pulses per configuration x 13 SNRs) of a finished run
+.\.venv\Scripts\python.exe scripts\evaluate.py --run runs\<experiment>_<timestamp>
+
+# 2-minute smoke test of a config
+.\.venv\Scripts\python.exe scripts\train.py --config configs\e001_baseline.yaml --epochs 1 --train-pulses 2
+```
+
+Then add a row to [docs/EXPERIMENT_LOG.md](docs/EXPERIMENT_LOG.md).
+
 ## Repository layout
 
 ```text
 .
+├── configs/                 # one YAML per experiment (E001 baseline, E002 multi-resolution, ...)
 ├── data/
 │   ├── manifest/            # official 80/20 split (tracked, SHA256-verified)
 │   └── raw/                 # extracted recordings (git-ignored, ~4.4 GB)
@@ -48,19 +67,24 @@ On macOS/Linux replace `.\.venv\Scripts\python.exe` by `.venv/bin/python`.
 │   └── 02_baseline.ipynb    # first end-to-end Track B pipeline (reference score)
 ├── reports/figures/         # figures for the final presentation
 ├── models/                  # checkpoints (git-ignored, hashed at freeze)
+├── runs/                    # one folder per training run (git-ignored)
 ├── scripts/
 │   ├── setup_data.py        # extract + integrity checks
+│   ├── train.py             # train an experiment from its config
+│   ├── evaluate.py          # full validation of a finished run
 │   ├── validate_submission.py
 │   └── hash_artifacts.py    # SHA256 + env capture for the Day-4 model freeze
 ├── src/radarml/             # shared, tested utilities
 │   ├── constants.py         # classes, sample rate, the 13 SNRs
 │   ├── manifest.py          # split loading, labels from filenames
 │   ├── noise.py             # on-the-fly SNR degradation == official expansion
-│   ├── features.py          # crop 19-122 us, per-pulse RMS normalisation, STFT front-end
+│   ├── features.py          # crop 19-122 us, per-pulse RMS normalisation, STFT front-ends
 │   ├── data.py              # PyTorch datasets (train: random SNR; eval: official noise)
 │   ├── models.py            # spectrogram CNN trained from scratch
 │   ├── training.py          # class weights, train / predict loops
-│   └── metrics.py           # challenge metric == official scorer
+│   ├── metrics.py           # challenge metric == official scorer
+│   ├── evaluation.py        # validation report, score per duration, inference cost
+│   └── plots.py             # validation figures written by the scripts
 ├── tests/
 └── third_party/radarml_lite/  # organizers' scripts, unmodified (GPL-3.0)
 ```

@@ -35,13 +35,27 @@ class _Recordings:
 
 
 class TrainDataset(Dataset):
-    """Training pulses only. Each access: requested SNR drawn from `snrs`, fresh noise."""
+    """Training pulses only. Each access: requested SNR drawn from `snrs`, fresh noise.
 
-    def __init__(self, refs: list[PulseRef], data_dir: Path, snrs=REQUESTED_SNRS_DB, seed: int = 0):
+    `snr_weights` (one per entry of `snrs`, any positive scale) biases the draw, e.g.
+    towards low SNRs; None keeps the uniform draw.
+    """
+
+    def __init__(self, refs: list[PulseRef], data_dir: Path, snrs=REQUESTED_SNRS_DB,
+                 snr_weights=None, seed: int = 0):
         if any(ref.split != "train" for ref in refs):
             raise ValueError("TrainDataset accepts training pulses only")
         self.refs, self.snrs, self.seed, self.epoch = refs, tuple(snrs), seed, 0
+        self.snr_probs = None if snr_weights is None else self._probabilities(snr_weights)
         self.recordings = _Recordings(data_dir)
+
+    def _probabilities(self, weights) -> np.ndarray:
+        weights = np.asarray(weights, dtype=np.float64)
+        if weights.shape != (len(self.snrs),):
+            raise ValueError(f"snr_weights needs one weight per SNR ({len(self.snrs)}), got shape {weights.shape}")
+        if np.any(weights < 0) or weights.sum() <= 0:
+            raise ValueError("snr_weights must be non-negative with a positive sum")
+        return weights / weights.sum()
 
     def set_epoch(self, epoch: int) -> None:
         """Call before each epoch (with non-persistent workers) to change noise draws."""
@@ -50,11 +64,16 @@ class TrainDataset(Dataset):
     def __len__(self) -> int:
         return len(self.refs)
 
+    def _draw_snr(self, rng: np.random.Generator) -> float:
+        # Uniform draw kept as is when no weights are given: E001 stays reproducible.
+        if self.snr_probs is None:
+            return float(self.snrs[rng.integers(len(self.snrs))])
+        return float(self.snrs[rng.choice(len(self.snrs), p=self.snr_probs)])
+
     def __getitem__(self, index: int):
         ref = self.refs[index]
         rng = np.random.default_rng((self.seed, self.epoch, index))
-        snr = float(self.snrs[rng.integers(len(self.snrs))])
-        row = degrade(self.recordings.row(ref), snr, rng)
+        row = degrade(self.recordings.row(ref), self._draw_snr(rng), rng)
         return torch.from_numpy(preprocess(row)), ref.target
 
 

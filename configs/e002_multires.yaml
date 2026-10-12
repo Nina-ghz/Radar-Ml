@@ -1,0 +1,42 @@
+experiment: E002_multires
+seed: 42
+train_pulses_per_file: 20
+monitor_pulses_per_file: 1
+val_pulses_per_file: 4
+train_snrs:
+  - 30
+  - 25
+  - 20
+  - 15
+  - 10
+  - 5
+  - 0
+  - -5
+  - -10
+  - -15
+  - -20
+  - -25
+  - -30
+stft:
+  type: multires
+  n_ffts:
+    - 64
+    - 256
+    - 1024
+  hop_length: 128
+  out_shape:
+    - 128
+    - 95
+cnn:
+  channels:
+    - 16
+    - 32
+    - 64
+    - 128
+  dropout: 0.3
+epochs: 8
+batch_size: 64
+lr: 0.002
+weight_decay: 0.0001
+label_smoothing: 0.05
+num_workers: 3
