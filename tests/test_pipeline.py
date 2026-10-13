@@ -137,6 +137,13 @@ def test_configs():
     assert e003["train_snr_weights"] == [1] * 6 + [2] * 3 + [4] * 4
     assert {k for k in e003 if k != "train_snr_weights" and e003[k] != e002[k]} == {"experiment"}
 
+    # one variable per experiment: E004 only changes stft out_shape (full frequency resolution)
+    e004 = yaml.safe_load((ROOT / "configs" / "e004_fullres.yaml").read_text(encoding="utf-8"))
+    assert e004["stft"]["out_shape"] == [256, 95]
+    assert {k for k in e004 if k != "stft" and e004[k] != e003[k]} == {"experiment"}
+    assert {k for k in e004["stft"] if e004["stft"][k] != e003["stft"][k]} == {"out_shape"}
+    assert count_parameters(build_model(e004["stft"], e004["cnn"])) == count_parameters(build_model(e003["stft"], e003["cnn"]))
+
 
 def test_evaluation_helpers():
     assert duration_of(PulseRef("100us_barker5x13_0Mhz_30Mhz_recorded.npy", "", 0, "validation", "barker")) == 100
