@@ -164,6 +164,11 @@ def test_configs():
     # global average pooling: the image size does not change the number of parameters
     assert count_parameters(build_model(e004["stft"], e004["cnn"])) == 292_279 + 2 * 16 * 9
 
+    # one variable per experiment: E005 trains E003 on every training pulse
+    e005 = yaml.safe_load((ROOT / "configs" / "e005_fulldata.yaml").read_text(encoding="utf-8"))
+    assert {key for key in e003 if e003[key] != e005[key]} == {"experiment", "train_pulses_per_file"}
+    assert e005["train_pulses_per_file"] is None
+
 
 def _report(barker_as_cw: int) -> dict:
     """7 classes x 10 pulses at +5 and -10 dB; `barker_as_cw` barker pulses go to cw at -10 dB."""
