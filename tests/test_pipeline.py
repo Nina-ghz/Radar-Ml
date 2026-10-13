@@ -10,11 +10,14 @@ yaml = pytest.importorskip("yaml")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from radarml.constants import REQUESTED_SNRS_DB  # noqa: E402
+from radarml.comparison import (class_recall, class_table, confusion_count, per_snr_table,  # noqa: E402
+                                saturated_snrs_hold, verdict)
+from radarml.constants import CLASSES, REQUESTED_SNRS_DB  # noqa: E402
 from radarml.data import TrainDataset  # noqa: E402
 from radarml.evaluation import duration_of, resolve_device  # noqa: E402
 from radarml.features import CROP, N_CROPPED, MultiResSTFT, STFTSpectrogram, preprocess  # noqa: E402
 from radarml.manifest import PulseRef  # noqa: E402
+from radarml.metrics import challenge_report  # noqa: E402
 from radarml.models import SpecCNN, TrackBModel, build_model, count_parameters  # noqa: E402
 
 E001_STFT = dict(n_fft=256, hop_length=128, freq_pool=2)
@@ -69,6 +72,20 @@ def test_train_snr_weights_bias_the_draw(train_ref, tmp_path):
     assert {only_zero_db._draw_snr(np.random.default_rng(i)) for i in range(50)} == {0.0}
     x, y = only_zero_db[0]
     assert x.shape == (2, N_CROPPED) and y == train_ref.target
+
+
+def test_drawn_snrs_are_the_training_draws(train_ref, tmp_path):
+    weights = [1] * 6 + [2] * 3 + [4] * 4
+    ds = TrainDataset([train_ref] * 6000, tmp_path, snr_weights=weights, seed=42)
+    ds.set_epoch(1)
+    draws = ds.drawn_snrs()
+    share = np.array([(draws == snr).mean() for snr in REQUESTED_SNRS_DB])
+    np.testing.assert_allclose(share, np.array(weights) / sum(weights), atol=0.015)
+    # same generator as __getitem__, so it describes the epoch that is actually trained
+    assert draws[7] == ds._draw_snr(np.random.default_rng((42, 1, 7)))
+    np.testing.assert_array_equal(draws, ds.drawn_snrs())
+    ds.set_epoch(2)
+    assert not np.array_equal(draws, ds.drawn_snrs())
 
 
 def test_train_default_snr_draw_is_unchanged(train_ref, tmp_path):
@@ -132,17 +149,43 @@ def test_configs():
     assert {key for key in e001 if e001[key] != e002[key]} == {"experiment", "stft"}
     assert count_parameters(build_model(e002["stft"], e002["cnn"])) == 292_279 + 2 * 16 * 9
 
-    # one variable per experiment: E003 only changes train_snr_weights
+    # one variable per experiment: E003 only adds train_snr_weights to E002
     e003 = yaml.safe_load((ROOT / "configs" / "e003_lowsnr.yaml").read_text(encoding="utf-8"))
     assert e003["train_snr_weights"] == [1] * 6 + [2] * 3 + [4] * 4
-    assert {k for k in e003 if k != "train_snr_weights" and e003[k] != e002[k]} == {"experiment"}
+    assert e003.keys() - e002.keys() == {"train_snr_weights"}
+    assert {key for key in e002 if e002[key] != e003[key]} == {"experiment"}
 
-    # one variable per experiment: E004 only changes stft out_shape (full frequency resolution)
+    # one variable per experiment: E004 only changes the image height of E003
     e004 = yaml.safe_load((ROOT / "configs" / "e004_fullres.yaml").read_text(encoding="utf-8"))
+    assert e003.keys() == e004.keys()
+    assert {key for key in e003 if e003[key] != e004[key]} == {"experiment", "stft"}
+    assert {key for key in e003["stft"] if e003["stft"][key] != e004["stft"][key]} == {"out_shape"}
     assert e004["stft"]["out_shape"] == [256, 95]
-    assert {k for k in e004 if k != "stft" and e004[k] != e003[k]} == {"experiment"}
-    assert {k for k in e004["stft"] if e004["stft"][k] != e003["stft"][k]} == {"out_shape"}
-    assert count_parameters(build_model(e004["stft"], e004["cnn"])) == count_parameters(build_model(e003["stft"], e003["cnn"]))
+    # global average pooling: the image size does not change the number of parameters
+    assert count_parameters(build_model(e004["stft"], e004["cnn"])) == 292_279 + 2 * 16 * 9
+
+
+def _report(barker_as_cw: int) -> dict:
+    """7 classes x 10 pulses at +5 and -10 dB; `barker_as_cw` barker pulses go to cw at -10 dB."""
+    y_true = np.tile(np.repeat(np.arange(len(CLASSES)), 10), 2)
+    snrs = np.repeat([5, -10], 10 * len(CLASSES))
+    y_pred = y_true.copy()
+    y_pred[10 * len(CLASSES):][:barker_as_cw] = CLASSES.index("cw")
+    return challenge_report(y_true, y_pred, snrs)
+
+
+def test_comparison_helpers():
+    parent, run = _report(barker_as_cw=4), _report(barker_as_cw=1)
+    assert class_recall(parent, -10, "barker") == pytest.approx(0.6)
+    assert confusion_count(parent, -10, "barker", "cw") == 4 and confusion_count(run, -10, "barker", "cw") == 1
+    table = per_snr_table(parent, run)
+    assert list(table.index) == [5, -10]
+    assert table.loc[-10, "delta"] == pytest.approx(0.3 / len(CLASSES)) and table.loc[5, "delta"] == 0
+    assert class_table(parent, run, ["barker", "cw"], [-10]).loc[-10].tolist() == pytest.approx([0.6, 0.9, 1, 1])
+    assert saturated_snrs_hold(run)
+    with pytest.raises(ValueError):       # not the same validation pulses
+        per_snr_table(parent, challenge_report([0, 1, 2, 3, 4, 5, 6], [0, 1, 2, 3, 4, 5, 6], [5] * 7))
+    assert [verdict(g).split()[0] for g in (0.012, 0.006, 0.004, -0.01)] == ["retenu", "provisoire", "rejeté", "rejeté"]
 
 
 def test_evaluation_helpers():

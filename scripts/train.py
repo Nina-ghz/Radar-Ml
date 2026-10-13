@@ -84,6 +84,10 @@ def main() -> None:
 
     train_ds = TrainDataset(train_refs, DATA_DIR, config["train_snrs"],
                             snr_weights=config.get("train_snr_weights"), seed=seed)
+    train_ds.set_epoch(1)
+    snr_share = pd.Series(train_ds.drawn_snrs()).value_counts(normalize=True)
+    print("SNR tirés à l'époque 1 : " + " | ".join(f"{snr:+d} dB {snr_share.get(snr, 0.0):.1%}"
+                                                    for snr in config["train_snrs"]), flush=True)
     loader_kw = dict(num_workers=config["num_workers"], persistent_workers=False, pin_memory=on_cuda)
     train_loader = DataLoader(train_ds, batch_size=config["batch_size"], shuffle=True, drop_last=True,
                               generator=torch.Generator().manual_seed(seed), **loader_kw)
