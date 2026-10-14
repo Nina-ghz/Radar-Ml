@@ -174,6 +174,12 @@ def test_configs():
     assert {key for key in e005 if e005[key] != e006[key]} == {"experiment", "epochs"}
     assert e006["epochs"] == 20
 
+    # replicates: E005 and E006 with another seed, nothing else changed
+    for name, parent in (("e005_seed43", e005), ("e006_seed43", e006)):
+        replicate = yaml.safe_load((ROOT / "configs" / f"{name}.yaml").read_text(encoding="utf-8"))
+        assert {key for key in parent if parent[key] != replicate[key]} == {"experiment", "seed"}
+        assert replicate["seed"] == 43
+
 
 def _report(barker_as_cw: int) -> dict:
     """7 classes x 10 pulses at +5 and -10 dB; `barker_as_cw` barker pulses go to cw at -10 dB."""
