@@ -67,7 +67,8 @@ Then add a row to [docs/EXPERIMENT_LOG.md](docs/EXPERIMENT_LOG.md).
 │   └── SUBMISSION_CHECKLIST.md
 ├── notebooks/
 │   ├── 01_eda.ipynb         # exploration + quantitative validation of the data
-│   └── 02_baseline.ipynb    # first end-to-end Track B pipeline (reference score)
+│   ├── 02_baseline.ipynb    # first end-to-end Track B pipeline (reference score)
+│   └── colab_train.ipynb    # train + evaluate configs on a free Colab GPU
 ├── reports/figures/         # figures for the final presentation
 ├── models/                  # checkpoints (git-ignored, hashed at freeze)
 ├── runs/                    # one folder per training run (git-ignored)
@@ -76,6 +77,8 @@ Then add a row to [docs/EXPERIMENT_LOG.md](docs/EXPERIMENT_LOG.md).
 │   ├── train.py             # train an experiment from its config
 │   ├── evaluate.py          # full validation of a finished run
 │   ├── compare_runs.py      # a run against its parent: per SNR, per class, costs, verdict
+│   ├── predict.py           # blind test -> predictions.csv (see docs/INFERENCE.md)
+│   ├── make_fake_blind_test.py  # official-format test set built from validation only
 │   ├── validate_submission.py
 │   └── hash_artifacts.py    # SHA256 + env capture for the Day-4 model freeze
 ├── src/radarml/             # shared, tested utilities
@@ -89,6 +92,7 @@ Then add a row to [docs/EXPERIMENT_LOG.md](docs/EXPERIMENT_LOG.md).
 │   ├── metrics.py           # challenge metric == official scorer
 │   ├── evaluation.py        # validation report, score per duration, inference cost
 │   ├── comparison.py        # run against parent run: per-SNR deltas, class recalls, decision rule
+│   ├── blind.py             # blind-test reader, predictions writer, fake blind test
 │   └── plots.py             # validation figures written by the scripts
 ├── tests/
 └── third_party/radarml_lite/  # organizers' scripts, unmodified (GPL-3.0)
