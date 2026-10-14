@@ -74,10 +74,11 @@ def _sync(device: torch.device) -> None:
 
 @torch.inference_mode()
 def inference_ms_per_pulse(model: TrackBModel, refs: list[PulseRef], data_dir: Path,
-                           device: torch.device, batch_size: int = 256) -> tuple[float, float]:
+                           device: torch.device, batch_size: int = 256, repeats: int = 5) -> tuple[float, float]:
     """(whole model, STFT front-end alone) in ms per pulse, on one batch after a warm-up.
 
-    Same protocol as notebooks/02_baseline.ipynb so costs stay comparable across experiments.
+    Same protocol as notebooks/02_baseline.ipynb, with the median of `repeats` passes: a single
+    pass varies by a factor of two with the machine load, which hides the cost of an experiment.
     """
     model.eval()
     refs = refs[:batch_size]
@@ -87,9 +88,12 @@ def inference_ms_per_pulse(model: TrackBModel, refs: list[PulseRef], data_dir: P
     model(batch[:32])
     timings = []
     for module in (model, model.frontend):
-        _sync(device)
-        start = time.perf_counter()
-        module(batch)
-        _sync(device)
-        timings.append((time.perf_counter() - start) / len(batch) * 1e3)
+        passes = []
+        for _ in range(repeats):
+            _sync(device)
+            start = time.perf_counter()
+            module(batch)
+            _sync(device)
+            passes.append((time.perf_counter() - start) / len(batch) * 1e3)
+        timings.append(float(np.median(passes)))
     return timings[0], timings[1]

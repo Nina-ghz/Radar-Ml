@@ -64,15 +64,22 @@ class TrainDataset(Dataset):
     def __len__(self) -> int:
         return len(self.refs)
 
+    def _rng(self, index: int) -> np.random.Generator:
+        return np.random.default_rng((self.seed, self.epoch, index))
+
     def _draw_snr(self, rng: np.random.Generator) -> float:
         # Uniform draw kept as is when no weights are given: E001 stays reproducible.
         if self.snr_probs is None:
             return float(self.snrs[rng.integers(len(self.snrs))])
         return float(self.snrs[rng.choice(len(self.snrs), p=self.snr_probs)])
 
+    def drawn_snrs(self) -> np.ndarray:
+        """Requested SNR of every pulse at the current epoch: the draws of __getitem__, without reading data."""
+        return np.array([self._draw_snr(self._rng(index)) for index in range(len(self))])
+
     def __getitem__(self, index: int):
         ref = self.refs[index]
-        rng = np.random.default_rng((self.seed, self.epoch, index))
+        rng = self._rng(index)
         row = degrade(self.recordings.row(ref), self._draw_snr(rng), rng)
         return torch.from_numpy(preprocess(row)), ref.target
 

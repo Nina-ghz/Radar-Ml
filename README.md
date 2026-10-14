@@ -44,6 +44,9 @@ One experiment = one YAML file in `configs/` (copy the best one, change one thin
 # Full validation (20 pulses per configuration x 13 SNRs) of a finished run
 .\.venv\Scripts\python.exe scripts\evaluate.py --run runs\<experiment>_<timestamp>
 
+# Compare a run with its parent, SNR by SNR (--full: on the full validation written by evaluate.py)
+.\.venv\Scripts\python.exe scripts\compare_runs.py --parent runs\<parent> --run runs\<experiment> [--full]
+
 # 2-minute smoke test of a config
 .\.venv\Scripts\python.exe scripts\train.py --config configs\e001_baseline.yaml --epochs 1 --train-pulses 2
 ```
@@ -72,6 +75,7 @@ Then add a row to [docs/EXPERIMENT_LOG.md](docs/EXPERIMENT_LOG.md).
 │   ├── setup_data.py        # extract + integrity checks
 │   ├── train.py             # train an experiment from its config
 │   ├── evaluate.py          # full validation of a finished run
+│   ├── compare_runs.py      # a run against its parent: per SNR, per class, costs, verdict
 │   ├── validate_submission.py
 │   └── hash_artifacts.py    # SHA256 + env capture for the Day-4 model freeze
 ├── src/radarml/             # shared, tested utilities
@@ -84,6 +88,7 @@ Then add a row to [docs/EXPERIMENT_LOG.md](docs/EXPERIMENT_LOG.md).
 │   ├── training.py          # class weights, train / predict loops
 │   ├── metrics.py           # challenge metric == official scorer
 │   ├── evaluation.py        # validation report, score per duration, inference cost
+│   ├── comparison.py        # run against parent run: per-SNR deltas, class recalls, decision rule
 │   └── plots.py             # validation figures written by the scripts
 ├── tests/
 └── third_party/radarml_lite/  # organizers' scripts, unmodified (GPL-3.0)
