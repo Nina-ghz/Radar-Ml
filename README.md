@@ -67,8 +67,7 @@ Then add a row to [docs/EXPERIMENT_LOG.md](docs/EXPERIMENT_LOG.md).
 │   └── SUBMISSION_CHECKLIST.md
 ├── notebooks/
 │   ├── 01_eda.ipynb         # exploration + quantitative validation of the data
-│   ├── 02_baseline.ipynb    # first end-to-end Track B pipeline (reference score)
-│   └── colab_train.ipynb    # train + evaluate + compare configs on a free Colab GPU
+│   └── 02_baseline.ipynb    # first end-to-end Track B pipeline (reference score)
 ├── reports/figures/         # figures for the final presentation
 ├── models/                  # checkpoints (git-ignored, hashed at freeze)
 ├── runs/                    # one folder per training run (git-ignored)
