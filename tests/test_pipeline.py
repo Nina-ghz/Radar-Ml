@@ -164,9 +164,9 @@ def test_configs():
     # global average pooling: the image size does not change the number of parameters
     assert count_parameters(build_model(e004["stft"], e004["cnn"])) == 292_279 + 2 * 16 * 9
 
-    # one variable per experiment: E005 trains E003 on every training pulse
+    # one variable per experiment: E005 trains E004 on every training pulse
     e005 = yaml.safe_load((ROOT / "configs" / "e005_fulldata.yaml").read_text(encoding="utf-8"))
-    assert {key for key in e003 if e003[key] != e005[key]} == {"experiment", "train_pulses_per_file"}
+    assert {key for key in e004 if e004[key] != e005[key]} == {"experiment", "train_pulses_per_file"}
     assert e005["train_pulses_per_file"] is None
 
 
