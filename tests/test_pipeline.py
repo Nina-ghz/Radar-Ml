@@ -197,3 +197,82 @@ def test_evaluation_helpers():
     assert duration_of(PulseRef("100us_barker5x13_0Mhz_30Mhz_recorded.npy", "", 0, "validation", "barker")) == 100
     assert resolve_device("cpu").type == "cpu"
     assert resolve_device("auto").type in ("cpu", "cuda")
+
+
+def _official(module: str):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(module, ROOT / "third_party" / "radarml_lite" / f"{module}.py")
+    loaded = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(loaded)
+    return loaded
+
+
+@pytest.fixture
+def fake_blind(tmp_path):
+    """3 synthetic validation recordings (noise floor + a tone inside the pulse window) -> fake blind test."""
+    from radarml.blind import write_fake_blind_test
+    rng = np.random.default_rng(0)
+    refs = []
+    for label in ("barker", "cw", "quad"):
+        name = f"10us_{label}_0Mhz_recorded.npy"
+        pulses = rng.normal(0, 30, size=(1, 2, 33_600))
+        t = np.arange(16_800)
+        pulse = (t > 3_000) & (t < 13_000)
+        pulses[0, :, 0::2] += 3_000 * np.cos(0.3 * t) * pulse
+        pulses[0, :, 1::2] += 3_000 * np.sin(0.3 * t) * pulse
+        np.save(tmp_path / name, pulses.astype(np.int16))
+        refs += [PulseRef(name, name, i, "validation", label) for i in range(2)]
+    out = tmp_path / "fake_blind"
+    assert write_fake_blind_test(refs, tmp_path, out, shard_size=30) == 6 * len(REQUESTED_SNRS_DB)
+    return out
+
+
+def test_fake_blind_test_matches_official_format(fake_blind):
+    from radarml.blind import BlindTestDataset, read_template
+    with pytest.raises(ValueError):
+        from radarml.blind import write_fake_blind_test
+        write_fake_blind_test([PulseRef("a.npy", "a.npy", 0, "train", "cw")], fake_blind, fake_blind / "x")
+    dataset = BlindTestDataset(fake_blind)
+    assert len(dataset) == 78 and sorted(p.name for p in fake_blind.glob("shard_*.npy")) == \
+        ["shard_000.npy", "shard_001.npy", "shard_002.npy"]
+    assert read_template(fake_blind / "submission_template.csv") == dataset.sample_ids
+    # same rows, same order as the organizers' loader
+    samples = _official("participant_loader").Samples(fake_blind)
+    for i in (0, 31, 77):
+        iq, info = samples[i]
+        row = np.empty(33_600, dtype=np.float32)
+        row[0::2], row[1::2] = iq.real, iq.imag
+        x, position = dataset[i]
+        assert position == i and info["sample_id"] == dataset.sample_ids[i]
+        np.testing.assert_array_equal(x.numpy(), preprocess(row))
+
+
+def test_predictions_are_scored_by_the_official_scorer(fake_blind, tmp_path):
+    import csv
+    from radarml.blind import read_template, write_predictions
+    with (fake_blind / "answer_key.csv").open(newline="") as stream:
+        truth = {r["sample_id"]: r["label"] for r in csv.DictReader(stream)}
+    template = read_template(fake_blind / "submission_template.csv")
+    write_predictions(tmp_path / "predictions.csv", template, truth)
+    report = _official("score_submission").score(fake_blind / "answer_key.csv", tmp_path / "predictions.csv")
+    assert report["mean_balanced_accuracy"] == 1.0 and len(report["per_snr"]) == 13
+    with pytest.raises(ValueError):
+        write_predictions(tmp_path / "bad.csv", template, dict(list(truth.items())[:-1]))
+    with pytest.raises(ValueError):
+        write_predictions(tmp_path / "bad.csv", template, {k: "radar" for k in truth})
+
+
+def test_predict_script_end_to_end(fake_blind, tmp_path):
+    import subprocess
+    stft = dict(type="multires", n_ffts=[64, 256], hop_length=128, out_shape=[64, 95])
+    cnn = dict(channels=[8, 16], dropout=0.0)
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "config.yaml").write_text(yaml.safe_dump(dict(stft=stft, cnn=cnn)), encoding="utf-8")
+    torch.save({"state_dict": build_model(stft, cnn).state_dict(), "epoch": 1}, run / "model.pt")
+    output = tmp_path / "predictions.csv"
+    subprocess.run([sys.executable, str(ROOT / "scripts" / "predict.py"), "--run", str(run), "--test-dir",
+                    str(fake_blind), "--output", str(output), "--num-workers", "0", "--device", "cpu"], check=True)
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "sample_id,predicted_label" and len(lines) == 79
+    assert {line.split(",")[1] for line in lines[1:]} <= set(CLASSES)

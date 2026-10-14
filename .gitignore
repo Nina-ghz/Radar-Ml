@@ -40,3 +40,6 @@ venv/
 .claude/
 .DS_Store
 Thumbs.db
+
+# Fake blind test built from validation (scripts/make_fake_blind_test.py)
+data/fake_blind/
