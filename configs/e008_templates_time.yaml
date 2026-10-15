@@ -1,8 +1,0 @@
-experiment: E008_templates_time
-seed: 42
-model: templates
-templates:
-  representation: time
-train_pulses_per_file: null
-val_pulses_per_file: 4
-num_workers: 3

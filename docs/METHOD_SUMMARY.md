@@ -38,7 +38,6 @@ Complex STFT of the cropped pulse: Hann window of 256 samples, hop 64, two-sided
 - There are no trainable weights and no random seed; fitting is deterministic.
 
 With a Hann window at 75 % overlap the STFT-domain correlation is close to a time-domain matched filter.
-The same matcher applied directly to the I/Q (E008, not submitted) gave the same validation scores.
 
 **How the method was chosen.** One change at a time, each compared with its parent on the same
 validation pulses (`docs/EXPERIMENT_LOG.md`). The first models were CNNs on magnitude spectrograms; the

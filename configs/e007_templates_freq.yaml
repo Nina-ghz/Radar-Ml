@@ -1,8 +1,6 @@
 experiment: E007_templates_freq
-seed: 42
 model: templates
 templates:
-  representation: stft
   n_fft: 256
   hop_length: 64
 train_pulses_per_file: null

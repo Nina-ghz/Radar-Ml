@@ -293,13 +293,12 @@ def test_predict_script_end_to_end(fake_blind, tmp_path):
     assert check.returncode == 0 and check.stdout.startswith("VALID: 78 predictions")
 
 
-@pytest.mark.parametrize("representation", ["time", "stft"])
-def test_template_matcher(tmp_path, representation):
+def test_template_matcher(tmp_path):
     """Fitted on training pulses only; recovers the configuration class through official noise."""
     from radarml.evaluation import load_checkpoint
     from radarml.models import model_from_config
     from radarml.noise import degrade_official
-    from radarml.templates import ComplexIQ, ComplexSTFT, TemplateMatcher
+    from radarml.templates import ComplexSTFT, TemplateMatcher
     rng = np.random.default_rng(0)
     t = np.arange(16_800)
     pulse = (t > 3_000) & (t < 13_000)
@@ -313,11 +312,11 @@ def test_template_matcher(tmp_path, representation):
         train += [PulseRef(name, name, i, "train", label) for i in range(2)]
         rows[label] = np.load(tmp_path / name)[0, 0]
     with pytest.raises(ValueError):
-        TemplateMatcher(3, representation).fit([PulseRef("a", "a", 0, "validation", "cw")], tmp_path)
+        TemplateMatcher(3).fit([PulseRef("a", "a", 0, "validation", "cw")], tmp_path)
 
-    config = dict(model="templates", templates=dict(n_templates=3, representation=representation))
+    config = dict(model="templates", templates=dict(n_templates=3, n_fft=256, hop_length=64))
     matcher = model_from_config(config).fit(train, tmp_path).eval()
-    assert isinstance(matcher.frontend, ComplexIQ if representation == "time" else ComplexSTFT)
+    assert isinstance(matcher.frontend, ComplexSTFT)
     x = torch.stack([torch.from_numpy(preprocess(degrade_official(rows[label], label, -10, 0)))
                      for label in ("cw", "fmcw", "quad")])
     logits = matcher(x)
