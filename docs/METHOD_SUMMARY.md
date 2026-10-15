@@ -6,7 +6,8 @@
 | Kaggle team | `POPCORN_freq` (Track B only; no Track A entry) |
 | Submitted model | E006-s43: `configs/e006_seed43.yaml`, run `E006_seed43_20261014_204114`, best epoch 19 of 20 |
 | `model.pt` SHA256 | `f6239747e2e397bf0fb2e1be031c08995abb7e0594dfa2174be63dbf0a982993` |
-| Code revision, prediction file hash | see `MANIFEST.json` and `INFERENCE_RUN.md` in the submission package |
+| `predictions_POPCORN_freq.csv` SHA256 | `2e1caeb65a25e1145c4a5a4a0ba63ab7e285ce3e4676f62769fa44ac9d3a41f2` |
+| Code revision | blind-test run at commit `52b69c5`; the package code is a later commit whose inference code (`src/`, `scripts/predict.py`, `third_party/`, `configs/`) is identical, see `MANIFEST.json` |
 
 ## 1. Methodology
 
@@ -81,7 +82,7 @@ at −25 dB all seven classes remain above chance; at −30 dB only `quad` and `
 | --- | --- |
 | Training hardware | NVIDIA Tesla T4 GPU (Google Colab), 28.0 min for 20 epochs |
 | Inference hardware | CPU only: Intel Core i5-1135G7 (4 cores, 8 threads), 7.7 GB RAM, Windows 11 |
-| Inference time per pulse, CPU | 12 ms for the model including the three STFTs (batch of 256, median of 5 passes); about 22 ms end to end including reading the shards and preprocessing (measured on a validation-built test set in the official format). Blind-test run: see `INFERENCE_RUN.md` |
+| Inference time per pulse, CPU | **18.2 ms end to end** on the blind test (171 600 signals in 52.0 min: reading the shards, preprocessing, three STFTs and the model; batch 64, 2 loader workers); 12 ms for the model with its STFTs alone (batch of 256, median of 5 passes). Log: `INFERENCE_RUN.md` |
 | Model size | 292 567 parameters, 1.19 MB |
 | Inference software | Python 3.12.10, PyTorch 2.14.1 (CPU), NumPy 2.5.4, SciPy 1.18.1, pandas 3.0.6, PyYAML 6.0.3; full list in `MANIFEST.json` |
 | Training software | the Google Colab GPU image of 14 October 2026 with the same `requirements.txt`; exact package versions of that session were not recorded |

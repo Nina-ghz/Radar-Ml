@@ -79,8 +79,8 @@ in `index.csv`, applies the fixed per-pulse preprocessing, computes the three ST
 writes `sample_id,label` in template order. It prints the SHA256 of `model.pt` and of the written file:
 compare them with `MANIFEST.json`.
 
-**Expected running time on CPU:** about 22 ms per signal end to end (12 ms for the model with its
-STFTs), i.e. about one hour for the 171 600 blind-test signals on a 4-core laptop CPU. See
+**Expected running time on CPU:** about 18 ms per signal end to end (12 ms for the model with its
+STFTs): 52 minutes for the 171 600 blind-test signals on a 4-core laptop CPU (Intel Core i5-1135G7). See
 `INFERENCE_RUN.md` for the measured run.
 
 Prediction is deterministic for a given machine and library versions. On other hardware or versions,
