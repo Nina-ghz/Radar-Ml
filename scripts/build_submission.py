@@ -75,13 +75,13 @@ python -m venv .venv
 
 `--test-dir` is the folder that holds `index.csv` and the `signals_*.npy` shards of the organizers'
 blind-test archive; `submission_template.csv` is found next to it. The script reads the int16 rows listed
-in `index.csv`, applies the fixed per-pulse preprocessing, computes the three STFTs inside the model, and
-writes `sample_id,label` in template order. It prints the SHA256 of `model.pt` and of the written file:
-compare them with `MANIFEST.json`.
+in `index.csv`, applies the fixed per-pulse preprocessing, computes the time-frequency representation
+inside the model, and writes `sample_id,label` in template order. It prints the SHA256 of `model.pt` and
+of the written file: compare them with `MANIFEST.json`.
 
-**Expected running time on CPU:** about 18 ms per signal end to end (12 ms for the model with its
-STFTs): 52 minutes for the 171 600 blind-test signals on a 4-core laptop CPU (Intel Core i5-1135G7). See
-`INFERENCE_RUN.md` for the measured run.
+**Expected running time on CPU:** a few milliseconds per signal for the model, and on the order of ten
+milliseconds end to end with file reading and preprocessing; the measured blind-test run is in
+`INFERENCE_RUN.md`.
 
 Prediction is deterministic for a given machine and library versions. On other hardware or versions,
 floating-point rounding can in principle change the arg-max of a very small number of near-tied
@@ -106,7 +106,8 @@ def main() -> None:
 
     export_code(args.out / "code")
     for name in MODEL_FILES:
-        shutil.copy2(args.run / name, args.out / "model" / name)
+        if (args.run / name).exists():                       # history.csv only exists for trained CNNs
+            shutil.copy2(args.run / name, args.out / "model" / name)
     shutil.copytree(args.run / "evaluation_figures", args.out / "figures")
     shutil.copy2(args.predictions, args.out / args.predictions.name)
     shutil.copy2(ROOT / "docs" / "METHOD_SUMMARY.md", args.out / "METHOD_SUMMARY.md")

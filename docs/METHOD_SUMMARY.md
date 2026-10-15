@@ -4,103 +4,94 @@
 | --- | --- |
 | Group | POPCORN |
 | Kaggle team | `POPCORN_freq` (Track B only; no Track A entry) |
-| Submitted model | E006-s43: `configs/e006_seed43.yaml`, run `E006_seed43_20261014_204114`, best epoch 19 of 20 |
-| `model.pt` SHA256 | `f6239747e2e397bf0fb2e1be031c08995abb7e0594dfa2174be63dbf0a982993` |
-| `predictions_POPCORN_freq.csv` SHA256 | `2e1caeb65a25e1145c4a5a4a0ba63ab7e285ce3e4676f62769fa44ac9d3a41f2` |
-| Code revision | blind-test run at commit `52b69c5`; the package code is a later commit whose inference code (`src/`, `scripts/predict.py`, `third_party/`, `configs/`) is identical, see `MANIFEST.json` |
+| Submitted model | E007: `configs/e007_templates_freq.yaml`, run `E007_templates_freq_20261016_002354` |
+| `model.pt` SHA256 | `6b73a11b0f523c375127ca8a12b7b0440da52b71bc51f448a630f837402ccb68` |
+| Prediction file and code revision | `INFERENCE_RUN.md` and `MANIFEST.json` in the submission package |
 
 ## 1. Methodology
 
-**Input and processing (per pulse, fixed rules, no learned preprocessing).**
+**Observation.** Each of the 660 waveform configurations repeats the same waveform with the same carrier
+phase: across the training pulses of a configuration the phase of the correlation with the first pulse
+varies by about 0.1° and the normalised correlation is 0.998 to 1.000. Training, validation and blind
+test share these 660 configurations (new pulses of known configurations). The class of a pulse can
+therefore be read from the configuration it matches, and a coherent correlation over the whole pulse
+keeps that match reliable far below the noise floor, where magnitude spectrograms lose it.
+
+**Processing (per pulse, fixed rules, no learned preprocessing).**
 
 1. Interleaved int16 I/Q `(33600,)` → complex `(16800,)` at 120 MS/s.
 2. Fixed crop to 19–122 µs (samples 2 280 to 14 640): every pulse of the 660 configurations lies in
    20.1–120.6 µs (measured on the training data). No filename, ID, metadata or requested SNR is used.
-3. Normalisation by the pulse's own RMS, so absolute amplitude is never a cue.
+3. Normalisation by the pulse's own RMS.
 
 **Time-frequency representation (Track B), computed inside the model and counted in inference time.**
-Three STFTs of the same complex pulse with Hann windows of 64, 256 and 1 024 samples, hop 128,
-two-sided (complex baseband), fftshifted, log power in dB. Each spectrogram is resized to 256 × 95
-(area interpolation when shrinking, bilinear when growing), standardised per example and per channel,
-then stacked as a 3 × 256 × 95 image. Long windows concentrate the energy of weak long pulses; short
-windows keep fast phase transitions.
+Complex STFT of the cropped pulse: Hann window of 256 samples, hop 64, two-sided, phase kept
+(190 frames × 256 bins = 48 640 complex coefficients).
 
-**Model.** Compact CNN trained from scratch (no pretrained weights, no external data): four blocks
-(16, 32, 64, 128 channels; 3 × 3 convolutions + batch norm + ReLU, one convolution in the first block and
-two in the others, 2 × 2 max pooling), global average pooling, dropout 0.3, linear layer to the 7 classes.
-292 567 parameters, 1.19 MB checkpoint.
+**Model: coherent template matching in the STFT domain.**
 
-**Training.**
+- *Fit (training pulses only):* for each configuration, the template is the mean of its 80 preprocessed
+  training pulses; its complex STFT is normalised to unit norm. No validation or test pulse is used, and
+  no noise is added. 660 templates (65.3 MB stored as time-domain I/Q; their STFT is computed at load).
+- *Decision:* score of a pulse against each template = real part of the inner product between the pulse's
+  complex STFT and the template's; the predicted class is the class of the best-scoring template.
+- There are no trainable weights and no random seed; fitting is deterministic.
 
-| Setting | Value |
-| --- | --- |
-| Training data | all 80 training pulses of each of the 660 configurations (52 800 pulses), official 80/20 manifest; no validation pulse used for training |
-| Noise | requested SNR drawn at every access with the organizers' `degrade()` (fresh noise each epoch), weights 1 for +30…+5 dB, 2 for 0…−10 dB, 4 for −15…−30 dB |
-| Loss | cross-entropy with inverse-frequency class weights (balanced-accuracy metric), label smoothing 0.05 |
-| Optimiser | AdamW, one-cycle learning rate up to 2e-3, weight decay 1e-4, batch 64, 20 epochs |
-| Checkpoint | best epoch on a monitoring subset of the validation split (1 pulse per configuration): epoch 19 |
-| Seed | 43 (`torch`, `numpy` and the noise generator) |
+With a Hann window at 75 % overlap the STFT-domain correlation is close to a time-domain matched filter.
+The same matcher applied directly to the I/Q (E008, not submitted) gave the same validation scores.
 
 **How the method was chosen.** One change at a time, each compared with its parent on the same
-validation pulses, and kept only if the mean balanced accuracy rose by at least 0.010 (gains between
-0.005 and 0.010 were rerun before being kept). Full log: `docs/EXPERIMENT_LOG.md`.
+validation pulses (`docs/EXPERIMENT_LOG.md`). The first models were CNNs on magnitude spectrograms; the
+best (E006) reached 0.8853 and was limited by −25 dB (0.437) and −30 dB (0.175), where the magnitude
+representation discards the phase. Keeping the phase and matching coherently (E007) removed that limit.
 
-| Experiment | Change | Validation mean (20 pulses/config) | Tie-break |
+| Experiment | Method | Validation mean (20 pulses/config) | Tie-break |
 | --- | --- | --- | --- |
-| E001 | Baseline: single STFT 256, 128 × 95, 20 pulses/config, uniform SNRs, 8 epochs | 0.8298 (4 pulses/config) | 0.3188 |
-| E002 | Multi-resolution STFT (64, 256, 1 024) | 0.8412 (rerun) | 0.3370 |
-| E003 | Training SNRs weighted towards low SNR (1/2/4) | 0.8528 (rerun) | 0.3791 |
-| E004 | Full frequency resolution, 256 × 95 instead of 128 × 95 | 0.8609 (rerun) | 0.4095 |
-| E005 | All 80 training pulses per configuration instead of 20 | 0.8770 / 0.8773 (seeds 42 / 43) | 0.4737 / 0.4739 |
-| **E006** | **20 epochs instead of 8** | **0.8837 / 0.8853 (seeds 42 / 43)** | **0.5003 / 0.5069** |
-
-E006 beat E005 with both seeds (+0.0066 and +0.0081) while two seeds of one configuration differed by
-0.0003 to 0.0017. The seed-43 model, the better of the two on validation, is submitted.
+| E001 | CNN on a single magnitude STFT, 20 pulses/config, uniform SNRs, 8 epochs | 0.8298 (4 pulses/config) | 0.3188 |
+| E002–E004 | Multi-resolution STFT, low-SNR weighting, full frequency resolution | 0.8412 → 0.8609 | 0.3370 → 0.4095 |
+| E005–E006 | All 80 training pulses, 20 epochs, two seeds each | 0.8770 → 0.8853 | 0.4737 → 0.5069 |
+| **E007** | **Coherent template matching on the complex STFT** | **0.9962** | **0.9836** |
 
 ## 2. Validation results of the submitted model
 
 Official validation split, 20 pulses per configuration at the 13 requested SNRs with the organizers'
 deterministic noise (171 600 examples), scored as the official metric.
 
-**Mean balanced accuracy 0.8853; tie-break (−20, −25, −30 dB) 0.5069.**
+**Mean balanced accuracy 0.9962; tie-break (−20, −25, −30 dB) 0.9836.**
 
-| Requested SNR (dB) | +30 … 0 | −5 | −10 | −15 | −20 | −25 | −30 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Balanced accuracy | 1.0000 | 1.0000 | 0.9989 | 0.9893 | 0.9092 | 0.4370 | 0.1746 |
+| Requested SNR (dB) | +30 … −25 | −30 |
+| --- | --- | --- |
+| Balanced accuracy | 1.0000 at every SNR | 0.9508 |
 
-By pulse duration (analysis only, from filenames): 10 µs 0.9093, 50 µs 0.8840, 100 µs 0.8626.
-Confusion matrices: `figures/05_confusion.png` (0, −10 and −20 dB) and the full per-SNR matrices in
-`model/evaluation_report.json`; error analysis in `notebooks/03_error_analysis.ipynb`.
-
-Main errors: at −20 dB short Barker codes (Barker 5 and 7) are predicted as `cw` and `nlfm` as `fmcw`;
-at −25 dB all seven classes remain above chance; at −30 dB only `quad` and `fmcw` stay above chance
-(1/7) and the model mostly answers these two classes.
+By pulse duration (analysis only, from filenames): 10 µs 0.9964, 50 µs 0.9961, 100 µs 0.9961.
+Confusion matrices: `figures/05_confusion.png` and all per-SNR matrices in `model/evaluation_report.json`.
+The −30 dB errors are spread over all classes; at that SNR 5.4 % of the I/Q values are clipped to the int16
+range by the organizers' noise generation.
 
 ## 3. Hardware, time and size
 
 | | |
 | --- | --- |
-| Training hardware | NVIDIA Tesla T4 GPU (Google Colab), 28.0 min for 20 epochs |
-| Inference hardware | CPU only: Intel Core i5-1135G7 (4 cores, 8 threads), 7.7 GB RAM, Windows 11 |
-| Inference time per pulse, CPU | **18.2 ms end to end** on the blind test (171 600 signals in 52.0 min: reading the shards, preprocessing, three STFTs and the model; batch 64, 2 loader workers); 12 ms for the model with its STFTs alone (batch of 256, median of 5 passes). Log: `INFERENCE_RUN.md` |
-| Model size | 292 567 parameters, 1.19 MB |
-| Inference software | Python 3.12.10, PyTorch 2.14.1 (CPU), NumPy 2.5.4, SciPy 1.18.1, pandas 3.0.6, PyYAML 6.0.3; full list in `MANIFEST.json` |
-| Training software | the Google Colab GPU image of 14 October 2026 with the same `requirements.txt`; exact package versions of that session were not recorded |
+| Fitting hardware and time | CPU only: Intel Core i5-1135G7 (4 cores, 8 threads), 7.7 GB RAM, Windows 11; 0.7 min |
+| Inference hardware | the same CPU |
+| Inference time per pulse, CPU | 1.9 ms for the model including the STFT (batch of 256, median of 5 passes); end to end on the blind test: see `INFERENCE_RUN.md` |
+| Model size | 660 templates of 12 360 complex samples, 65.3 MB; no trainable parameters |
+| Software | Python 3.12.10, PyTorch 2.14.1 (CPU), NumPy 2.5.4, SciPy 1.18.1, pandas 3.0.6, PyYAML 6.0.3; full list in `MANIFEST.json` |
 
 ## 4. Attribution and AI assistance
 
 - Dataset: Ritchie, White and Hosford (2025), *RadarML*, version 1 (CC BY 4.0), RadarML Lite release.
-- Code: `third_party/radarml_lite/` is copied unmodified from UCLRadarGroup/Radar_ML_lite (GPL-3.0);
-  its `degrade()` generates the training noise and validation noise, and its scorer is mirrored by our
-  metric. The rest of the code is ours.
+- Code: `third_party/radarml_lite/` is copied unmodified from UCLRadarGroup/Radar_ML_lite (GPL-3.0); its
+  `degrade()` generates the validation noise and its scorer is mirrored by our metric. The rest of the
+  code is ours.
 - AI assistants were used for code and documentation: Claude Code (Anthropic) and Antigravity with
   Gemini (Google). All results were run and checked by the team.
 
 ## 5. Limitations and timeline
 
+- The method relies on the blind test containing new pulses of the 660 known configurations, as stated
+  by the organizers; it would not recognise a waveform configuration absent from the training data.
 - Validation measures new pulses of known configurations, not unseen configurations or receivers.
-- One model (one seed) is submitted; −25 dB and −30 dB remain close to chance.
-- The exact package versions of the Colab training session were not recorded.
-- The model was selected on validation on 14 October 2026; the blind test was downloaded on
-  15 October 2026 after that choice. No training, tuning or model selection used the blind test.
-  The only change after selection is the output header (`sample_id,label`, required by Kaggle).
+- The model freeze was cancelled by the organizers. The method was developed and selected on 16 October
+  2026 using the training and validation splits only. No training, tuning or model selection used the
+  blind test, which was only read to produce the final predictions.
