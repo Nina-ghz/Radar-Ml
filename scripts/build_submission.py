@@ -115,7 +115,7 @@ def main() -> None:
         lines = [line for line in args.inference_log.read_text(encoding="utf-8").splitlines()
                  if not line.startswith("  ")]
         (args.out / "INFERENCE_RUN.md").write_text(
-            "# Blind-test inference run\n\nOutput of `scripts/run_blind.cmd` (progress lines removed).\n\n```\n"
+            "# Blind-test inference run\n\nOutput of `predict.py` then `validate_submission.py` on the blind test (progress lines removed).\n\n```\n"
             + "\n".join(lines) + "\n```\n", encoding="utf-8")
 
     files = sorted(p for p in args.out.rglob("*") if p.is_file())
