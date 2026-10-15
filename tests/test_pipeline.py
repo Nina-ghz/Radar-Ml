@@ -291,3 +291,39 @@ def test_predict_script_end_to_end(fake_blind, tmp_path):
                             str(output), "--template", str(fake_blind / "submission_template.csv")],
                            capture_output=True, text=True)
     assert check.returncode == 0 and check.stdout.startswith("VALID: 78 predictions")
+
+
+@pytest.mark.parametrize("representation", ["time", "stft"])
+def test_template_matcher(tmp_path, representation):
+    """Fitted on training pulses only; recovers the configuration class through official noise."""
+    from radarml.evaluation import load_checkpoint
+    from radarml.models import model_from_config
+    from radarml.noise import degrade_official
+    from radarml.templates import ComplexIQ, ComplexSTFT, TemplateMatcher
+    rng = np.random.default_rng(0)
+    t = np.arange(16_800)
+    pulse = (t > 3_000) & (t < 13_000)
+    train, rows = [], {}
+    for label, rate in (("cw", 0.0), ("fmcw", 1e-5), ("quad", 3e-5)):
+        name = f"10us_{label}_0Mhz_recorded.npy"
+        phase = 0.3 * t + rate * (t - 3_000) ** 2
+        clean = np.zeros((2, 33_600))
+        clean[:, 0::2], clean[:, 1::2] = 3_000 * np.cos(phase) * pulse, 3_000 * np.sin(phase) * pulse
+        np.save(tmp_path / name, (clean + rng.normal(0, 30, clean.shape))[None].astype(np.int16))
+        train += [PulseRef(name, name, i, "train", label) for i in range(2)]
+        rows[label] = np.load(tmp_path / name)[0, 0]
+    with pytest.raises(ValueError):
+        TemplateMatcher(3, representation).fit([PulseRef("a", "a", 0, "validation", "cw")], tmp_path)
+
+    config = dict(model="templates", templates=dict(n_templates=3, representation=representation))
+    matcher = model_from_config(config).fit(train, tmp_path).eval()
+    assert isinstance(matcher.frontend, ComplexIQ if representation == "time" else ComplexSTFT)
+    x = torch.stack([torch.from_numpy(preprocess(degrade_official(rows[label], label, -10, 0)))
+                     for label in ("cw", "fmcw", "quad")])
+    logits = matcher(x)
+    assert logits.shape == (3, len(CLASSES))
+    assert [CLASSES[i] for i in logits.argmax(1).tolist()] == ["cw", "fmcw", "quad"]
+
+    torch.save({"state_dict": matcher.state_dict(), "epoch": 0}, tmp_path / "model.pt")
+    reloaded, _ = load_checkpoint(tmp_path / "model.pt", config, torch.device("cpu"))
+    assert torch.equal(reloaded(x), logits)
