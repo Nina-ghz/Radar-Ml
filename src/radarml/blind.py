@@ -19,7 +19,9 @@ from .features import preprocess
 from .manifest import PulseRef
 from .noise import degrade_official
 
-SUBMISSION_HEADER = ("sample_id", "predicted_label")
+# Kaggle accepts exactly `sample_id,label`; the organizers' offline scorer
+# (third_party/radarml_lite/score_submission.py) reads `sample_id,predicted_label`.
+KAGGLE_LABEL_COLUMN, SCORER_LABEL_COLUMN = "label", "predicted_label"
 
 
 class BlindTestDataset(Dataset):
@@ -56,8 +58,9 @@ def read_template(path: Path) -> list[str]:
         return [row["sample_id"] for row in csv.DictReader(stream)]
 
 
-def write_predictions(path: Path, template_ids: list[str], predictions: dict[str, str]) -> None:
-    """predictions.csv in template order, with the exact header required by the scorer."""
+def write_predictions(path: Path, template_ids: list[str], predictions: dict[str, str],
+                      label_column: str = KAGGLE_LABEL_COLUMN) -> None:
+    """predictions.csv in template order: header `sample_id,<label_column>`, one row per template ID."""
     missing, extra = set(template_ids) - predictions.keys(), predictions.keys() - set(template_ids)
     if missing or extra:
         raise ValueError(f"Predictions do not match the template: {len(missing)} missing, {len(extra)} unknown IDs")
@@ -65,7 +68,7 @@ def write_predictions(path: Path, template_ids: list[str], predictions: dict[str
         raise ValueError(f"Unknown labels: {set(predictions.values()) - set(CLASSES)}")
     with Path(path).open("w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream, lineterminator="\n")
-        writer.writerow(SUBMISSION_HEADER)
+        writer.writerow(("sample_id", label_column))
         writer.writerows((sample_id, predictions[sample_id]) for sample_id in template_ids)
 
 

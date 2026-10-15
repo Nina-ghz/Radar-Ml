@@ -264,7 +264,7 @@ def test_predictions_are_scored_by_the_official_scorer(fake_blind, tmp_path):
     with (fake_blind / "answer_key.csv").open(newline="") as stream:
         truth = {r["sample_id"]: r["label"] for r in csv.DictReader(stream)}
     template = read_template(fake_blind / "submission_template.csv")
-    write_predictions(tmp_path / "predictions.csv", template, truth)
+    write_predictions(tmp_path / "predictions.csv", template, truth, label_column="predicted_label")
     report = _official("score_submission").score(fake_blind / "answer_key.csv", tmp_path / "predictions.csv")
     assert report["mean_balanced_accuracy"] == 1.0 and len(report["per_snr"]) == 13
     with pytest.raises(ValueError):
@@ -285,5 +285,9 @@ def test_predict_script_end_to_end(fake_blind, tmp_path):
     subprocess.run([sys.executable, str(ROOT / "scripts" / "predict.py"), "--run", str(run), "--test-dir",
                     str(fake_blind), "--output", str(output), "--num-workers", "0", "--device", "cpu"], check=True)
     lines = output.read_text(encoding="utf-8").splitlines()
-    assert lines[0] == "sample_id,predicted_label" and len(lines) == 79
+    assert lines[0] == "sample_id,label" and len(lines) == 79   # the header Kaggle accepts
     assert {line.split(",")[1] for line in lines[1:]} <= set(CLASSES)
+    check = subprocess.run([sys.executable, str(ROOT / "scripts" / "validate_submission.py"), "--predictions",
+                            str(output), "--template", str(fake_blind / "submission_template.csv")],
+                           capture_output=True, text=True)
+    assert check.returncode == 0 and check.stdout.startswith("VALID: 78 predictions")
