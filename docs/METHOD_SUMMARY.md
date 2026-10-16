@@ -6,7 +6,8 @@
 | Kaggle team | `POPCORN_freq` (Track B only; no Track A entry) |
 | Submitted model | E007: `configs/e007_templates_freq.yaml`, run `E007_templates_freq_20261016_002354` |
 | `model.pt` SHA256 | `6b73a11b0f523c375127ca8a12b7b0440da52b71bc51f448a630f837402ccb68` |
-| Prediction file and code revision | `INFERENCE_RUN.md` and `MANIFEST.json` in the submission package |
+| `predictions_POPCORN_freq.csv` SHA256 | `324f107fafa8dc5fbdf1df8b9ec068108d459fa9d140f9d031963981d53ccdfa` |
+| Reproduction | the package's `code/` and `model/` regenerate this file byte for byte (`INFERENCE_RUN.md`); code revision in `MANIFEST.json` |
 
 ## 1. Methodology
 
@@ -73,7 +74,7 @@ range by the organizers' noise generation.
 | --- | --- |
 | Fitting hardware and time | CPU only: Intel Core i5-1135G7 (4 cores, 8 threads), 7.7 GB RAM, Windows 11; 0.7 min |
 | Inference hardware | the same CPU |
-| Inference time per pulse, CPU | 1.9 ms for the model including the STFT (batch of 256, median of 5 passes); end to end on the blind test: see `INFERENCE_RUN.md` |
+| Inference time per pulse, CPU | **6.1 ms end to end on the blind test** (171 600 signals in 17.5 min: reading the shards, preprocessing, STFT and matching; batch 64, 2 loader workers); 1.9 ms for the model including the STFT (batch of 256, median of 5 passes) |
 | Model size | 660 templates of 12 360 complex samples, 65.3 MB; no trainable parameters |
 | Software | Python 3.12.10, PyTorch 2.14.1 (CPU), NumPy 2.5.4, SciPy 1.18.1, pandas 3.0.6, PyYAML 6.0.3; full list in `MANIFEST.json` |
 
