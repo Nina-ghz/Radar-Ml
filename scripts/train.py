@@ -12,7 +12,6 @@ validation_report.json and figures/.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
 from datetime import datetime
@@ -32,12 +31,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from radarml.data import EvalDataset, TrainDataset  # noqa: E402
-from radarml.evaluation import (describe_hardware, evaluate, inference_ms_per_pulse,  # noqa: E402
-                                load_checkpoint, resolve_device)
+from radarml.evaluation import resolve_device, write_validation_report  # noqa: E402
 from radarml.manifest import load_manifest, select  # noqa: E402
 from radarml.metrics import challenge_report  # noqa: E402
 from radarml.models import build_model, count_parameters  # noqa: E402
-from radarml.plots import save_validation_figures  # noqa: E402
 from radarml.training import class_weights, predict, train_one_epoch  # noqa: E402
 
 DATA_DIR = ROOT / "data" / "raw" / "recorded_dataset"
@@ -120,28 +117,12 @@ def main() -> None:
     history = pd.DataFrame(history)
     history.to_csv(run_dir / "history.csv", index=False)
 
-    model, checkpoint = load_checkpoint(run_dir / "model.pt", config, device)
-    print(f"Entraînement : {training_minutes:.1f} min | meilleure époque : {checkpoint['epoch']}", flush=True)
-    result = evaluate(model, val_refs, DATA_DIR, device, num_workers=config["num_workers"])
-    report = result["report"]
-    model_ms, stft_ms = inference_ms_per_pulse(model, val_refs, DATA_DIR, device)
-    costs = {"paramètres": n_params,
-             "taille modèle (Mo)": round((run_dir / "model.pt").stat().st_size / 1e6, 2),
-             "inférence (ms/pulse, STFT incluse)": round(model_ms, 2),
-             "dont STFT (ms/pulse)": round(stft_ms, 2),
-             "entraînement (min)": round(training_minutes, 1),
-             "matériel": describe_hardware(device)}
-    summary = dict(experiment=config["experiment"], config=config, best_epoch=checkpoint["epoch"],
-                   mean_balanced_accuracy=report["mean_balanced_accuracy"],
-                   tiebreak_low_snr=report["tiebreak_low_snr"],
-                   by_duration={d: rep["mean_balanced_accuracy"] for d, rep in result["by_duration"].items()},
-                   costs=costs, per_snr=report["per_snr"], history=history.to_dict("records"))
-    (run_dir / "validation_report.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False),
-                                                    encoding="utf-8")
-    save_validation_figures(report, result["by_duration"], run_dir / "figures")
-
-    print(f"SCORE VALIDATION (moyenne des 13 SNR) : {report['mean_balanced_accuracy']:.4f} | "
-          f"tie-break (-20/-25/-30 dB) : {report['tiebreak_low_snr']:.4f} | {model_ms:.1f} ms/pulse")
+    best_epoch = int(history.loc[history["val_monitor_bal_acc"].idxmax(), "epoch"])
+    print(f"Entraînement : {training_minutes:.1f} min | meilleure époque : {best_epoch}", flush=True)
+    summary = write_validation_report(run_dir, config, val_refs, DATA_DIR, device, training_minutes,
+                                      history.to_dict("records"))
+    print(f"SCORE VALIDATION (moyenne des 13 SNR) : {summary['mean_balanced_accuracy']:.4f} | "
+          f"tie-break (-20/-25/-30 dB) : {summary['tiebreak_low_snr']:.4f} | {summary['model_ms']:.1f} ms/pulse")
     print(f"Run : {run_dir}")
 
 

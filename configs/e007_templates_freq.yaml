@@ -1,0 +1,8 @@
+experiment: E007_templates_freq
+model: templates
+templates:
+  n_fft: 256
+  hop_length: 64
+train_pulses_per_file: null
+val_pulses_per_file: 4
+num_workers: 3

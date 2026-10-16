@@ -43,3 +43,6 @@ Thumbs.db
 
 # Fake blind test built from validation (scripts/make_fake_blind_test.py)
 data/fake_blind/
+
+# Reproduction package sent to the organizers (scripts/build_submission.py)
+submission/

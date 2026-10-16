@@ -6,6 +6,7 @@ from torch import nn
 
 from .constants import CLASSES
 from .features import MultiResSTFT, STFTSpectrogram
+from .templates import TemplateMatcher
 
 
 def _block(c_in: int, c_out: int, convs: int = 2) -> nn.Sequential:
@@ -57,6 +58,13 @@ def build_model(stft: dict, cnn: dict) -> TrackBModel:
         raise ValueError(f"Unknown stft.type {kind!r} (expected one of {sorted(FRONTENDS)})")
     frontend = FRONTENDS[kind](**stft)
     return TrackBModel(frontend, SpecCNN(**{"in_channels": frontend.out_channels, **cnn}))
+
+
+def model_from_config(config: dict) -> nn.Module:
+    """CNN (`config["stft"]`, `config["cnn"]`) or, when `config["model"] == "templates"`, the template matcher."""
+    if config.get("model", "cnn") == "templates":
+        return TemplateMatcher(**config["templates"])
+    return build_model(config["stft"], config["cnn"])
 
 
 def count_parameters(model: nn.Module) -> int:
